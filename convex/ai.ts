@@ -1,13 +1,12 @@
 "use node";
 
-import { internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { internalAction, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { GoogleGenAI } from "@google/genai";
 import { google } from "@ai-sdk/google";
 import { generateObject } from "ai";
 import { z } from "zod";
 import { internal } from "./_generated/api";
-import { Id } from "./_generated/dataModel";
 
 // Zod schema for structured lesson extraction
 const LessonSchema = z.object({
@@ -59,7 +58,7 @@ export const createFileSearchStore = internalAction({
       });
 
       // Get book details
-      const book = await ctx.runQuery(internal.ai.getBook, {
+      const book = await ctx.runQuery(internal.books.getBookInternal, {
         bookId: args.bookId,
       });
 
@@ -171,7 +170,7 @@ export const generateLessonsForBook = internalAction({
 
     try {
       // Get book details
-      const book = await ctx.runQuery(internal.ai.getBook, {
+      const book = await ctx.runQuery(internal.books.getBookInternal, {
         bookId: args.bookId,
       });
 
@@ -180,7 +179,7 @@ export const generateLessonsForBook = internalAction({
       }
 
       // Get existing lesson count
-      const existingLessons = await ctx.runQuery(internal.ai.getLessonCount, {
+      const existingLessons = await ctx.runQuery(internal.lessons.getLessonCountInternal, {
         bookId: args.bookId,
       });
 
@@ -323,45 +322,6 @@ export const saveLessonsBatch = internalMutation({
       });
     }
     return null;
-  },
-});
-
-/**
- * Internal query: Get book details
- */
-export const getBook = internalQuery({
-  args: { bookId: v.id("books") },
-  returns: v.union(
-    v.object({
-      _id: v.id("books"),
-      _creationTime: v.number(),
-      title: v.string(),
-      author: v.string(),
-      uploadedFileId: v.optional(v.id("_storage")),
-      fileSearchStoreName: v.optional(v.string()),
-      status: v.string(),
-      processingError: v.optional(v.string()),
-      processedAt: v.optional(v.number()),
-    }),
-    v.null()
-  ),
-  handler: async (ctx, args) => {
-    return await ctx.db.get(args.bookId);
-  },
-});
-
-/**
- * Internal query: Get lesson count for a book
- */
-export const getLessonCount = internalQuery({
-  args: { bookId: v.id("books") },
-  returns: v.number(),
-  handler: async (ctx, args) => {
-    const lessons = await ctx.db
-      .query("lessons")
-      .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
-      .collect();
-    return lessons.length;
   },
 });
 

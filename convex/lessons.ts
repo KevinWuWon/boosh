@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 
 /**
@@ -193,5 +193,20 @@ export const markComplete = mutation({
     });
 
     return null;
+  },
+});
+
+/**
+ * Internal query: Get lesson count for a book (used by AI actions)
+ */
+export const getLessonCountInternal = internalQuery({
+  args: { bookId: v.id("books") },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    const lessons = await ctx.db
+      .query("lessons")
+      .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+      .collect();
+    return lessons.length;
   },
 });

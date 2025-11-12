@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 
@@ -127,5 +127,29 @@ export const getProcessingStatus = query({
       processingError: book.processingError,
       processedAt: book.processedAt,
     };
+  },
+});
+
+/**
+ * Internal query: Get book details (used by AI actions)
+ */
+export const getBookInternal = internalQuery({
+  args: { bookId: v.id("books") },
+  returns: v.union(
+    v.object({
+      _id: v.id("books"),
+      _creationTime: v.number(),
+      title: v.string(),
+      author: v.string(),
+      uploadedFileId: v.optional(v.id("_storage")),
+      fileSearchStoreName: v.optional(v.string()),
+      status: v.string(),
+      processingError: v.optional(v.string()),
+      processedAt: v.optional(v.number()),
+    }),
+    v.null()
+  ),
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.bookId);
   },
 });
