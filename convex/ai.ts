@@ -211,7 +211,7 @@ Extract the next 5-10 lessons. Return hasMore=true if there are more lessons to 
 
       // Generate lessons using Google GenAI with File Search and structured output
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash-exp",
+        model: "gemini-2.5-flash",
         contents: prompt,
         config: {
           responseMimeType: "application/json",
