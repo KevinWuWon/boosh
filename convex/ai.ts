@@ -190,9 +190,40 @@ export const generateLessonsForBook = internalAction({
         apiKey: apiKey,
       });
 
-      const prompt = `You are an expert at creating daily learning lessons from books.
+      // Step 1: Query the book content using File Search
+      const contextPrompt = `Extract relevant content from "${book.title}" by ${book.author} for creating daily lessons.
 
-Analyze the book "${book.title}" by ${book.author} and extract structured lessons suitable for daily reading.
+${existingLessons > 0 ? `We have already generated ${existingLessons} lessons. Extract content that comes AFTER the already processed material.` : "Start from the beginning of the book."}
+
+Provide the next section of content (approximately 5-10 lesson-sized chunks) that should be turned into daily lessons. Include chapter information and key points.`;
+
+      const contextResponse = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: contextPrompt,
+        config: {
+          tools: [
+            {
+              fileSearch: {
+                fileSearchStoreNames: [book.fileSearchStoreName],
+              },
+            },
+          ],
+        },
+      });
+
+      const bookContent = contextResponse.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!bookContent) {
+        throw new Error("No content retrieved from book");
+      }
+
+      console.log(`Retrieved content from book (${bookContent.length} chars)`);
+
+      // Step 2: Use structured output to extract lessons from the retrieved content
+      const structuredPrompt = `You are an expert at creating daily learning lessons from books.
+
+Based on this content from "${book.title}" by ${book.author}, extract structured lessons suitable for daily reading:
+
+${bookContent}
 
 Guidelines:
 - Each lesson should take 10-15 minutes to read
@@ -205,30 +236,22 @@ Guidelines:
   * Skip exercises for narrative sections
 - Maintain the book's original voice and examples
 
-${existingLessons > 0 ? `You have already generated ${existingLessons} lessons. Continue from where you left off.` : "This is the first batch. Start from the beginning of the book."}
+${existingLessons > 0 ? `We have already generated ${existingLessons} lessons. Continue the chapter/lesson numbering from there.` : "Start from chapter 1, lesson 1."}
 
-Extract the next 5-10 lessons. Return hasMore=true if there are more lessons to extract after this batch.`;
+Extract 5-10 lessons from this content. Set hasMore=true if there appears to be more content in the book after this section.`;
 
-      // Generate lessons using Google GenAI with File Search and structured output
-      const response = await ai.models.generateContent({
+      const structuredResponse = await ai.models.generateContent({
         model: "gemini-2.5-flash",
-        contents: prompt,
+        contents: structuredPrompt,
         config: {
           responseMimeType: "application/json",
           responseJsonSchema: zodToJsonSchema(LessonBatchSchema),
-          tools: [
-            {
-              fileSearch: {
-                fileSearchStoreNames: [book.fileSearchStoreName],
-              },
-            },
-          ],
         },
       });
 
-      const resultText = response.candidates?.[0]?.content?.parts?.[0]?.text;
+      const resultText = structuredResponse.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!resultText) {
-        throw new Error("No response from AI");
+        throw new Error("No structured response from AI");
       }
 
       const parsedResult = JSON.parse(resultText);
