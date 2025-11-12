@@ -211,19 +211,23 @@ Provide the next section of content (approximately 5-10 lesson-sized chunks) tha
         },
       });
 
-      console.log("File Search response:", JSON.stringify(contextResponse, null, 2));
+      // Extract content from grounding chunks (File Search returns content here)
+      const groundingChunks = contextResponse.candidates?.[0]?.groundingMetadata?.groundingChunks;
+      if (!groundingChunks || groundingChunks.length === 0) {
+        throw new Error("No grounding chunks found in File Search response");
+      }
 
-      const bookContent = contextResponse.candidates?.[0]?.content?.parts?.[0]?.text;
+      // Combine all retrieved context text from the chunks
+      const bookContent = groundingChunks
+        .map((chunk: any) => chunk.retrievedContext?.text || "")
+        .filter((text: string) => text.length > 0)
+        .join("\n\n");
+
       if (!bookContent) {
-        console.error("Failed to extract text from response structure");
-        console.error("Candidates:", contextResponse.candidates);
-        console.error("First candidate:", contextResponse.candidates?.[0]);
-        console.error("Content:", contextResponse.candidates?.[0]?.content);
-        console.error("Parts:", contextResponse.candidates?.[0]?.content?.parts);
         throw new Error("No content retrieved from book");
       }
 
-      console.log(`Retrieved content from book (${bookContent.length} chars)`);
+      console.log(`Retrieved content from ${groundingChunks.length} chunks (${bookContent.length} chars total)`);
 
       // Step 2: Use structured output to extract lessons from the retrieved content
       const structuredPrompt = `You are an expert at creating daily learning lessons from books.
