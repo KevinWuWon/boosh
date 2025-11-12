@@ -2,7 +2,7 @@
 
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
-import { GoogleGenerativeAI } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { google } from "@ai-sdk/google";
 import { generateObject } from "ai";
 import { z } from "zod";
@@ -77,8 +77,10 @@ export const createFileSearchStore = internalAction({
       const arrayBuffer = await pdfBlob.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
 
-      // Initialize Google Generative AI client
-      const ai = new GoogleGenerativeAI(apiKey);
+      // Initialize Google Gen AI client
+      const ai = new GoogleGenAI({
+        apiKey: apiKey,
+      });
 
       // Create File Search store
       console.log(`Creating File Search store for book: ${book.title}`);
@@ -93,7 +95,7 @@ export const createFileSearchStore = internalAction({
 
       // Upload PDF to the store
       console.log(`Uploading PDF to File Search store...`);
-      const uploadResponse = await ai.fileSearchStores.uploadToFileSearchStore({
+      let operation = await ai.fileSearchStores.uploadToFileSearchStore({
         file: buffer,
         fileSearchStoreName: storeName,
         config: {
@@ -102,30 +104,24 @@ export const createFileSearchStore = internalAction({
         },
       });
 
-      console.log(`PDF uploaded: ${uploadResponse.file?.name}`);
+      console.log(`PDF upload initiated`);
 
       // Wait for indexing to complete (poll the operation)
-      const operationName = uploadResponse.name;
-      let indexed = false;
       let attempts = 0;
       const maxAttempts = 30; // 30 attempts * 2 seconds = 1 minute max
 
-      while (!indexed && attempts < maxAttempts) {
+      while (!operation.done && attempts < maxAttempts) {
         await new Promise((resolve) => setTimeout(resolve, 2000));
-        const operation = await ai.fileSearchStores.getOperation({
-          name: operationName,
-        });
+        operation = await ai.operations.get({ operation });
 
-        if (operation.done) {
-          indexed = true;
-          console.log(`PDF indexing complete`);
-        }
         attempts++;
       }
 
-      if (!indexed) {
+      if (!operation.done) {
         throw new Error("PDF indexing timed out");
       }
+
+      console.log(`PDF indexing complete`);
 
       // Save store name and update status
       await ctx.runMutation(internal.ai.updateBookWithStore, {
