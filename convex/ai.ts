@@ -3,9 +3,8 @@
 import { internalAction } from "./_generated/server";
 import { v } from "convex/values";
 import { GoogleGenAI } from "@google/genai";
-import { google } from "@ai-sdk/google";
-import { generateObject } from "ai";
 import { z } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import { internal } from "./_generated/api";
 
 // Zod schema for structured lesson extraction
@@ -72,10 +71,6 @@ export const createFileSearchStore = internalAction({
         throw new Error("PDF file not found in storage");
       }
 
-      // Convert Blob to Buffer for Google SDK
-      const arrayBuffer = await pdfBlob.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-
       // Initialize Google Gen AI client
       const ai = new GoogleGenAI({
         apiKey: apiKey,
@@ -90,12 +85,15 @@ export const createFileSearchStore = internalAction({
       });
 
       const storeName = storeResponse.name;
+      if (!storeName) {
+        throw new Error("Failed to create File Search store");
+      }
       console.log(`File Search store created: ${storeName}`);
 
       // Upload PDF to the store
       console.log(`Uploading PDF to File Search store...`);
       let operation = await ai.fileSearchStores.uploadToFileSearchStore({
-        file: buffer,
+        file: pdfBlob,
         fileSearchStoreName: storeName,
         config: {
           displayName: `${book.title}.pdf`,
@@ -187,14 +185,12 @@ export const generateLessonsForBook = internalAction({
         `Generating lesson batch ${args.batchNumber} for: ${book.title} (${existingLessons} lessons so far)`
       );
 
-      // Generate lessons using Vercel AI SDK with File Search
-      const result = await generateObject({
-        model: google("gemini-2.0-flash-exp", {
-          useSearchGrounding: true,
-        }),
-        output: "object",
-        schema: LessonBatchSchema,
-        prompt: `You are an expert at creating daily learning lessons from books.
+      // Initialize Google Gen AI client
+      const ai = new GoogleGenAI({
+        apiKey: apiKey,
+      });
+
+      const prompt = `You are an expert at creating daily learning lessons from books.
 
 Analyze the book "${book.title}" by ${book.author} and extract structured lessons suitable for daily reading.
 
@@ -211,15 +207,32 @@ Guidelines:
 
 ${existingLessons > 0 ? `You have already generated ${existingLessons} lessons. Continue from where you left off.` : "This is the first batch. Start from the beginning of the book."}
 
-Extract the next 5-10 lessons. Return hasMore=true if there are more lessons to extract after this batch.`,
-        tools: {
-          fileSearch: google.tools.fileSearch({
-            fileSearchStoreNames: [book.fileSearchStoreName],
-          }),
+Extract the next 5-10 lessons. Return hasMore=true if there are more lessons to extract after this batch.`;
+
+      // Generate lessons using Google GenAI with File Search and structured output
+      const response = await ai.models.generateContent({
+        model: "gemini-2.0-flash-exp",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseJsonSchema: zodToJsonSchema(LessonBatchSchema),
+          tools: [
+            {
+              fileSearch: {
+                fileSearchStoreNames: [book.fileSearchStoreName],
+              },
+            },
+          ],
         },
       });
 
-      const { lessons, hasMore, estimatedTotalLessons } = result.object;
+      const resultText = response.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!resultText) {
+        throw new Error("No response from AI");
+      }
+
+      const parsedResult = JSON.parse(resultText);
+      const { lessons, hasMore, estimatedTotalLessons } = LessonBatchSchema.parse(parsedResult);
 
       console.log(
         `Generated ${lessons.length} lessons. hasMore=${hasMore}, estimated total=${estimatedTotalLessons}`
