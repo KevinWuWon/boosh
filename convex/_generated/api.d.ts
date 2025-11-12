@@ -8,13 +8,21 @@
  * @module
  */
 
+import type * as books from "../books.js";
+import type * as lessons from "../lessons.js";
+import type * as userProgress from "../userProgress.js";
+
 import type {
   ApiFromModules,
   FilterApi,
   FunctionReference,
 } from "convex/server";
 
-declare const fullApi: ApiFromModules<{}>;
+declare const fullApi: ApiFromModules<{
+  books: typeof books;
+  lessons: typeof lessons;
+  userProgress: typeof userProgress;
+}>;
 
 /**
  * A utility for referencing Convex functions in your app's public API.
