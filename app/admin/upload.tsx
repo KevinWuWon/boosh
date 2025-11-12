@@ -40,7 +40,6 @@ export default function AdminUpload() {
 
   const createBook = useMutation(api.books.create);
   const generateUploadUrl = useMutation(api.books.generateUploadUrl);
-  const regenerateLessons = useMutation(api.books.regenerateLessons);
   const processingStatus = useQuery(
     uploadedBookId ? api.books.getProcessingStatus : 'skip',
     uploadedBookId ? { bookId: uploadedBookId } : 'skip'
@@ -117,18 +116,6 @@ export default function AdminUpload() {
     setBookTitle('');
     setBookAuthor('');
     setSelectedFile(null);
-  };
-
-  const handleRegenerateLessons = async () => {
-    if (!uploadedBookId) return;
-
-    try {
-      await regenerateLessons({ bookId: uploadedBookId });
-      Alert.alert('Success', 'Regenerating lessons. This may take a few minutes.');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to regenerate lessons');
-      console.error(error);
-    }
   };
 
   const getStatusText = (status: string) => {
@@ -208,20 +195,6 @@ export default function AdminUpload() {
                 onPress={() => router.back()}
               >
                 <ThemedText style={styles.actionButtonText}>View Books</ThemedText>
-              </Pressable>
-            )}
-
-            {(isComplete || isError) && (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.secondaryButton,
-                  { borderColor: tint, opacity: pressed ? 0.7 : 1 },
-                ]}
-                onPress={handleRegenerateLessons}
-              >
-                <ThemedText style={[styles.secondaryButtonText, { color: tint }]}>
-                  Regenerate Lessons
-                </ThemedText>
               </Pressable>
             )}
 

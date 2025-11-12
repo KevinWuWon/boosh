@@ -24,6 +24,7 @@ export default function TodayLesson() {
   const nextLesson = useQuery(api.lessons.getNextIncomplete, { bookId });
   const progress = useQuery(api.userProgress.getProgress, { bookId });
   const markComplete = useMutation(api.lessons.markComplete);
+  const regenerateLessons = useMutation(api.books.regenerateLessons);
 
   const handleComplete = async () => {
     if (!nextLesson) return;
@@ -55,6 +56,32 @@ export default function TodayLesson() {
     } catch {
       Alert.alert('Error', 'Failed to mark lesson as complete');
     }
+  };
+
+  const handleRegenerateLessons = async () => {
+    Alert.alert(
+      'Regenerate Lessons',
+      'This will delete all existing lessons and generate new ones from the PDF. This may take a few minutes. Continue?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Regenerate',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await regenerateLessons({ bookId });
+              Alert.alert('Success', 'Regenerating lessons. This may take a few minutes.');
+            } catch (error) {
+              Alert.alert('Error', 'Failed to regenerate lessons');
+              console.error(error);
+            }
+          },
+        },
+      ]
+    );
   };
 
   if (book === undefined || nextLesson === undefined || progress === undefined) {
@@ -116,6 +143,16 @@ export default function TodayLesson() {
               {progress.completedLessons} of {progress.totalLessons} lessons
             </ThemedText>
           </View>
+          <Pressable onPress={handleRegenerateLessons} style={styles.regenerateButton}>
+            {({ pressed }) => (
+              <IconSymbol
+                name="arrow.clockwise"
+                size={24}
+                color={tint}
+                style={{ opacity: pressed ? 0.5 : 1 }}
+              />
+            )}
+          </Pressable>
         </View>
 
         <ScrollView
@@ -183,6 +220,9 @@ const styles = StyleSheet.create({
   headerInfo: {
     marginLeft: 16,
     flex: 1,
+  },
+  regenerateButton: {
+    padding: 8,
   },
   progressText: {
     fontSize: 12,
