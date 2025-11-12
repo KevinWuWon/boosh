@@ -131,6 +131,50 @@ export const getProcessingStatus = query({
 });
 
 /**
+ * Regenerate lessons for an existing book
+ * Useful for retrying failed processing or regenerating lessons
+ */
+export const regenerateLessons = mutation({
+  args: { bookId: v.id("books") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const book = await ctx.db.get(args.bookId);
+    if (!book) {
+      throw new Error("Book not found");
+    }
+
+    if (!book.fileSearchStoreName) {
+      throw new Error("Book must be uploaded first - no File Search store found");
+    }
+
+    // Clear existing lessons
+    const existingLessons = await ctx.db
+      .query("lessons")
+      .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+      .collect();
+
+    for (const lesson of existingLessons) {
+      await ctx.db.delete(lesson._id);
+    }
+
+    // Reset book status and clear errors
+    await ctx.db.patch(args.bookId, {
+      status: "processing",
+      processingError: undefined,
+      processedAt: undefined,
+    });
+
+    // Trigger lesson generation from batch 0
+    await ctx.scheduler.runAfter(0, internal.ai.generateLessonsForBook, {
+      bookId: args.bookId,
+      batchNumber: 0,
+    });
+
+    return null;
+  },
+});
+
+/**
  * Internal query: Get book details (used by AI actions)
  */
 export const getBookInternal = internalQuery({
