@@ -1,6 +1,6 @@
 "use node";
 
-import { internalAction, internalMutation } from "./_generated/server";
+import { internalAction } from "./_generated/server";
 import { v } from "convex/values";
 import { GoogleGenAI } from "@google/genai";
 import { google } from "@ai-sdk/google";
@@ -52,7 +52,7 @@ export const createFileSearchStore = internalAction({
 
     try {
       // Update status to "uploading"
-      await ctx.runMutation(internal.ai.updateBookStatus, {
+      await ctx.runMutation(internal.books.updateBookStatus, {
         bookId: args.bookId,
         status: "uploading",
       });
@@ -123,7 +123,7 @@ export const createFileSearchStore = internalAction({
       console.log(`PDF indexing complete`);
 
       // Save store name and update status
-      await ctx.runMutation(internal.ai.updateBookWithStore, {
+      await ctx.runMutation(internal.books.updateBookWithStore, {
         bookId: args.bookId,
         fileSearchStoreName: storeName,
         status: "processing",
@@ -142,7 +142,7 @@ export const createFileSearchStore = internalAction({
       return null;
     } catch (error) {
       console.error("Error creating File Search store:", error);
-      await ctx.runMutation(internal.ai.updateBookStatus, {
+      await ctx.runMutation(internal.books.updateBookStatus, {
         bookId: args.bookId,
         status: "error",
         error: error instanceof Error ? error.message : "Unknown error",
@@ -227,7 +227,7 @@ Extract the next 5-10 lessons. Return hasMore=true if there are more lessons to 
 
       // Save lessons to database
       if (lessons.length > 0) {
-        await ctx.runMutation(internal.ai.saveLessonsBatch, {
+        await ctx.runMutation(internal.lessons.saveLessonsBatch, {
           bookId: args.bookId,
           lessons: lessons.map((lesson) => ({
             chapterNumber: lesson.chapterNumber,
@@ -253,7 +253,7 @@ Extract the next 5-10 lessons. Return hasMore=true if there are more lessons to 
       } else {
         // All lessons generated - mark as ready
         console.log(`Lesson generation complete for: ${book.title}`);
-        await ctx.runMutation(internal.ai.updateBookStatus, {
+        await ctx.runMutation(internal.books.updateBookStatus, {
           bookId: args.bookId,
           status: "ready",
         });
@@ -281,7 +281,7 @@ Extract the next 5-10 lessons. Return hasMore=true if there are more lessons to 
         );
       } else {
         // Other errors - mark as error but keep partial results
-        await ctx.runMutation(internal.ai.updateBookStatus, {
+        await ctx.runMutation(internal.books.updateBookStatus, {
           bookId: args.bookId,
           status: "error",
           error: error instanceof Error ? error.message : "Unknown error",
@@ -290,88 +290,5 @@ Extract the next 5-10 lessons. Return hasMore=true if there are more lessons to 
 
       return null;
     }
-  },
-});
-
-/**
- * Internal mutation: Save a batch of lessons to the database
- */
-export const saveLessonsBatch = internalMutation({
-  args: {
-    bookId: v.id("books"),
-    lessons: v.array(
-      v.object({
-        chapterNumber: v.number(),
-        lessonNumber: v.number(),
-        title: v.string(),
-        content: v.string(),
-        exercise: v.optional(v.string()),
-      })
-    ),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    for (const lesson of args.lessons) {
-      await ctx.db.insert("lessons", {
-        bookId: args.bookId,
-        chapterNumber: lesson.chapterNumber,
-        lessonNumber: lesson.lessonNumber,
-        title: lesson.title,
-        content: lesson.content,
-        exercise: lesson.exercise,
-      });
-    }
-    return null;
-  },
-});
-
-/**
- * Internal mutation: Update book status
- */
-export const updateBookStatus = internalMutation({
-  args: {
-    bookId: v.id("books"),
-    status: v.string(),
-    error: v.optional(v.string()),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const updates: {
-      status: string;
-      processingError?: string;
-      processedAt?: number;
-    } = {
-      status: args.status,
-    };
-
-    if (args.error) {
-      updates.processingError = args.error;
-    }
-
-    if (args.status === "ready") {
-      updates.processedAt = Date.now();
-    }
-
-    await ctx.db.patch(args.bookId, updates);
-    return null;
-  },
-});
-
-/**
- * Internal mutation: Update book with File Search store name
- */
-export const updateBookWithStore = internalMutation({
-  args: {
-    bookId: v.id("books"),
-    fileSearchStoreName: v.string(),
-    status: v.string(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    await ctx.db.patch(args.bookId, {
-      fileSearchStoreName: args.fileSearchStoreName,
-      status: args.status,
-    });
-    return null;
   },
 });

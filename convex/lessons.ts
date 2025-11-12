@@ -1,4 +1,4 @@
-import { mutation, query, internalQuery } from "./_generated/server";
+import { mutation, query, internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 
 /**
@@ -208,5 +208,37 @@ export const getLessonCountInternal = internalQuery({
       .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
       .collect();
     return lessons.length;
+  },
+});
+
+/**
+ * Internal mutation: Save a batch of lessons to the database (used by AI actions)
+ */
+export const saveLessonsBatch = internalMutation({
+  args: {
+    bookId: v.id("books"),
+    lessons: v.array(
+      v.object({
+        chapterNumber: v.number(),
+        lessonNumber: v.number(),
+        title: v.string(),
+        content: v.string(),
+        exercise: v.optional(v.string()),
+      })
+    ),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    for (const lesson of args.lessons) {
+      await ctx.db.insert("lessons", {
+        bookId: args.bookId,
+        chapterNumber: lesson.chapterNumber,
+        lessonNumber: lesson.lessonNumber,
+        title: lesson.title,
+        content: lesson.content,
+        exercise: lesson.exercise,
+      });
+    }
+    return null;
   },
 });
