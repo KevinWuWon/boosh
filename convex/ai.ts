@@ -211,8 +211,15 @@ Provide the next section of content (approximately 5-10 lesson-sized chunks) tha
         },
       });
 
+      console.log("File Search response:", JSON.stringify(contextResponse, null, 2));
+
       const bookContent = contextResponse.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!bookContent) {
+        console.error("Failed to extract text from response structure");
+        console.error("Candidates:", contextResponse.candidates);
+        console.error("First candidate:", contextResponse.candidates?.[0]);
+        console.error("Content:", contextResponse.candidates?.[0]?.content);
+        console.error("Parts:", contextResponse.candidates?.[0]?.content?.parts);
         throw new Error("No content retrieved from book");
       }
 
