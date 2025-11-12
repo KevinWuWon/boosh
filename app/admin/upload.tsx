@@ -6,11 +6,12 @@ import {
   TextInput,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
-import { useMutation } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
@@ -34,19 +35,15 @@ export default function AdminUpload() {
     name: string;
     uri: string;
   } | null>(null);
-
-  // For manual lesson entry
-  const [showLessonForm, setShowLessonForm] = useState(false);
-  const [selectedBookId, setSelectedBookId] = useState<Id<'books'> | null>(null);
-  const [lessonTitle, setLessonTitle] = useState('');
-  const [lessonContent, setLessonContent] = useState('');
-  const [lessonExercise, setLessonExercise] = useState('');
-  const [chapterNumber, setChapterNumber] = useState('1');
-  const [lessonNumber, setLessonNumber] = useState('1');
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadedBookId, setUploadedBookId] = useState<Id<'books'> | null>(null);
 
   const createBook = useMutation(api.books.create);
-  const createLesson = useMutation(api.lessons.create);
   const generateUploadUrl = useMutation(api.books.generateUploadUrl);
+  const processingStatus = useQuery(
+    uploadedBookId ? api.books.getProcessingStatus : 'skip',
+    uploadedBookId ? { bookId: uploadedBookId } : 'skip'
+  );
 
   const pickDocument = async () => {
     try {
@@ -73,94 +70,154 @@ export default function AdminUpload() {
       return;
     }
 
-    try {
-      let uploadedFileId: Id<'_storage'> | undefined;
-
-      // If a file was selected, upload it
-      if (selectedFile) {
-        const uploadUrl = await generateUploadUrl();
-        const response = await fetch(selectedFile.uri);
-        const blob = await response.blob();
-
-        const upload = await fetch(uploadUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/pdf' },
-          body: blob,
-        });
-
-        const { storageId } = await upload.json();
-        uploadedFileId = storageId;
-      }
-
-      const bookId = await createBook({
-        title: bookTitle,
-        author: bookAuthor,
-        uploadedFileId,
-      });
-
-      Alert.alert(
-        'Success',
-        'Book created! Now add lessons manually.',
-        [
-          {
-            text: 'Add Lessons',
-            onPress: () => {
-              setSelectedBookId(bookId);
-              setShowLessonForm(true);
-              setBookTitle('');
-              setBookAuthor('');
-              setSelectedFile(null);
-            },
-          },
-          {
-            text: 'Done',
-            onPress: () => router.back(),
-          },
-        ]
-      );
-    } catch (error) {
-      Alert.alert('Error', 'Failed to create book');
-      console.error(error);
-    }
-  };
-
-  const handleCreateLesson = async () => {
-    if (!selectedBookId || !lessonTitle.trim() || !lessonContent.trim()) {
-      Alert.alert('Error', 'Please enter lesson title and content');
+    if (!selectedFile) {
+      Alert.alert('Error', 'Please select a PDF file');
       return;
     }
 
+    setIsUploading(true);
+
     try {
-      await createLesson({
-        bookId: selectedBookId,
-        chapterNumber: parseInt(chapterNumber) || 1,
-        lessonNumber: parseInt(lessonNumber) || 1,
-        title: lessonTitle,
-        content: lessonContent,
-        exercise: lessonExercise.trim() || undefined,
+      // Upload PDF to Convex storage
+      const uploadUrl = await generateUploadUrl();
+      const response = await fetch(selectedFile.uri);
+      const blob = await response.blob();
+
+      const upload = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/pdf' },
+        body: blob,
       });
 
-      Alert.alert('Success', 'Lesson created!', [
-        {
-          text: 'Add Another',
-          onPress: () => {
-            setLessonTitle('');
-            setLessonContent('');
-            setLessonExercise('');
-            setLessonNumber(String(parseInt(lessonNumber) + 1));
-          },
-        },
-        {
-          text: 'Done',
-          onPress: () => router.back(),
-        },
-      ]);
+      const { storageId } = await upload.json();
+
+      // Create book and trigger AI processing
+      const bookId = await createBook({
+        title: bookTitle,
+        author: bookAuthor,
+        uploadedFileId: storageId,
+      });
+
+      // Show processing status
+      setUploadedBookId(bookId);
+      setBookTitle('');
+      setBookAuthor('');
+      setSelectedFile(null);
     } catch (error) {
-      Alert.alert('Error', 'Failed to create lesson');
+      Alert.alert('Error', 'Failed to upload book');
       console.error(error);
+    } finally {
+      setIsUploading(false);
     }
   };
 
+  const handleReset = () => {
+    setUploadedBookId(null);
+    setBookTitle('');
+    setBookAuthor('');
+    setSelectedFile(null);
+  };
+
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return 'Preparing upload...';
+      case 'uploading':
+        return 'Uploading to AI service...';
+      case 'processing':
+        return 'Extracting lessons...';
+      case 'ready':
+        return 'Complete!';
+      case 'error':
+        return 'Error occurred';
+      default:
+        return status;
+    }
+  };
+
+  // Show processing status if book is being processed
+  if (uploadedBookId && processingStatus) {
+    const isComplete = processingStatus.status === 'ready';
+    const isError = processingStatus.status === 'error';
+
+    return (
+      <SafeAreaView style={styles.container}>
+        <ThemedView style={styles.content}>
+          <View style={styles.header}>
+            <Pressable onPress={() => router.back()} style={styles.backButton}>
+              {({ pressed }) => (
+                <IconSymbol
+                  name="chevron.right"
+                  size={24}
+                  color={tint}
+                  style={[styles.backIcon, { opacity: pressed ? 0.5 : 1 }]}
+                />
+              )}
+            </Pressable>
+            <ThemedText type="title">Processing Book</ThemedText>
+          </View>
+
+          <View style={styles.statusContainer}>
+            {!isComplete && !isError && (
+              <ActivityIndicator size="large" color={tint} style={styles.spinner} />
+            )}
+
+            {isComplete && (
+              <IconSymbol name="checkmark.circle.fill" size={80} color={tint} />
+            )}
+
+            {isError && (
+              <IconSymbol name="exclamationmark.triangle.fill" size={80} color="#ff3b30" />
+            )}
+
+            <ThemedText type="subtitle" style={styles.statusTitle}>
+              {getStatusText(processingStatus.status)}
+            </ThemedText>
+
+            {processingStatus.lessonsGenerated > 0 && (
+              <ThemedText style={styles.statusDetail}>
+                {processingStatus.lessonsGenerated} lessons generated
+              </ThemedText>
+            )}
+
+            {isError && processingStatus.processingError && (
+              <ThemedText style={[styles.statusDetail, styles.errorText]}>
+                {processingStatus.processingError}
+              </ThemedText>
+            )}
+
+            {isComplete && (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.actionButton,
+                  { backgroundColor: tint, opacity: pressed ? 0.8 : 1 },
+                ]}
+                onPress={() => router.back()}
+              >
+                <ThemedText style={styles.actionButtonText}>View Books</ThemedText>
+              </Pressable>
+            )}
+
+            {(isComplete || isError) && (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  { borderColor: tint, opacity: pressed ? 0.7 : 1 },
+                ]}
+                onPress={handleReset}
+              >
+                <ThemedText style={[styles.secondaryButtonText, { color: tint }]}>
+                  Upload Another Book
+                </ThemedText>
+              </Pressable>
+            )}
+          </View>
+        </ThemedView>
+      </SafeAreaView>
+    );
+  }
+
+  // Show upload form
   return (
     <SafeAreaView style={styles.container}>
       <ThemedView style={styles.content}>
@@ -175,9 +232,7 @@ export default function AdminUpload() {
               />
             )}
           </Pressable>
-          <ThemedText type="title">
-            {showLessonForm ? 'Add Lessons' : 'Add Book'}
-          </ThemedText>
+          <ThemedText type="title">Add Book</ThemedText>
         </View>
 
         <ScrollView
@@ -185,140 +240,69 @@ export default function AdminUpload() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {!showLessonForm ? (
-            <>
-              <ThemedText type="subtitle" style={styles.sectionTitle}>
-                Book Information
-              </ThemedText>
+          <ThemedText type="subtitle" style={styles.sectionTitle}>
+            Book Information
+          </ThemedText>
 
-              <ThemedText style={styles.label}>Title *</ThemedText>
-              <TextInput
-                style={[styles.input, { color: textColor, backgroundColor, borderColor }]}
-                value={bookTitle}
-                onChangeText={setBookTitle}
-                placeholder="Enter book title"
-                placeholderTextColor={textColor + '80'}
-              />
+          <ThemedText style={styles.label}>Title *</ThemedText>
+          <TextInput
+            style={[styles.input, { color: textColor, backgroundColor, borderColor }]}
+            value={bookTitle}
+            onChangeText={setBookTitle}
+            placeholder="Enter book title"
+            placeholderTextColor={textColor + '80'}
+            editable={!isUploading}
+          />
 
-              <ThemedText style={styles.label}>Author *</ThemedText>
-              <TextInput
-                style={[styles.input, { color: textColor, backgroundColor, borderColor }]}
-                value={bookAuthor}
-                onChangeText={setBookAuthor}
-                placeholder="Enter author name"
-                placeholderTextColor={textColor + '80'}
-              />
+          <ThemedText style={styles.label}>Author *</ThemedText>
+          <TextInput
+            style={[styles.input, { color: textColor, backgroundColor, borderColor }]}
+            value={bookAuthor}
+            onChangeText={setBookAuthor}
+            placeholder="Enter author name"
+            placeholderTextColor={textColor + '80'}
+            editable={!isUploading}
+          />
 
-              <ThemedText type="subtitle" style={styles.sectionTitle}>
-                PDF File (Optional)
-              </ThemedText>
+          <ThemedText type="subtitle" style={styles.sectionTitle}>
+            PDF File *
+          </ThemedText>
 
-              <Pressable
-                style={({ pressed }) => [
-                  styles.uploadButton,
-                  { borderColor: tint, opacity: pressed ? 0.7 : 1 }
-                ]}
-                onPress={pickDocument}
-              >
-                <IconSymbol name="plus.circle.fill" size={24} color={tint} />
-                <ThemedText style={[styles.uploadButtonText, { color: tint }]}>
-                  {selectedFile ? selectedFile.name : 'Select PDF File'}
-                </ThemedText>
-              </Pressable>
+          <ThemedText style={styles.helperText}>
+            Upload a PDF and AI will automatically extract daily lessons from it.
+          </ThemedText>
 
-              <Pressable
-                style={({ pressed }) => [
-                  styles.createButton,
-                  { backgroundColor: tint, opacity: pressed ? 0.8 : 1 }
-                ]}
-                onPress={handleCreateBook}
-              >
-                <ThemedText style={styles.createButtonText}>Create Book</ThemedText>
-              </Pressable>
-            </>
-          ) : (
-            <>
-              <ThemedText type="subtitle" style={styles.sectionTitle}>
-                Lesson Information
-              </ThemedText>
+          <Pressable
+            style={({ pressed }) => [
+              styles.uploadButton,
+              { borderColor: tint, opacity: pressed ? 0.7 : 1 },
+            ]}
+            onPress={pickDocument}
+            disabled={isUploading}
+          >
+            <IconSymbol name="plus.circle.fill" size={24} color={tint} />
+            <ThemedText style={[styles.uploadButtonText, { color: tint }]}>
+              {selectedFile ? selectedFile.name : 'Select PDF File'}
+            </ThemedText>
+          </Pressable>
 
-              <View style={styles.row}>
-                <View style={styles.halfWidth}>
-                  <ThemedText style={styles.label}>Chapter #</ThemedText>
-                  <TextInput
-                    style={[styles.input, { color: textColor, backgroundColor, borderColor }]}
-                    value={chapterNumber}
-                    onChangeText={setChapterNumber}
-                    placeholder="1"
-                    keyboardType="number-pad"
-                    placeholderTextColor={textColor + '80'}
-                  />
-                </View>
-                <View style={styles.halfWidth}>
-                  <ThemedText style={styles.label}>Lesson #</ThemedText>
-                  <TextInput
-                    style={[styles.input, { color: textColor, backgroundColor, borderColor }]}
-                    value={lessonNumber}
-                    onChangeText={setLessonNumber}
-                    placeholder="1"
-                    keyboardType="number-pad"
-                    placeholderTextColor={textColor + '80'}
-                  />
-                </View>
-              </View>
-
-              <ThemedText style={styles.label}>Title *</ThemedText>
-              <TextInput
-                style={[styles.input, { color: textColor, backgroundColor, borderColor }]}
-                value={lessonTitle}
-                onChangeText={setLessonTitle}
-                placeholder="Enter lesson title"
-                placeholderTextColor={textColor + '80'}
-              />
-
-              <ThemedText style={styles.label}>Content *</ThemedText>
-              <TextInput
-                style={[
-                  styles.input,
-                  styles.textArea,
-                  { color: textColor, backgroundColor, borderColor },
-                ]}
-                value={lessonContent}
-                onChangeText={setLessonContent}
-                placeholder="Enter lesson content"
-                placeholderTextColor={textColor + '80'}
-                multiline
-                numberOfLines={8}
-                textAlignVertical="top"
-              />
-
-              <ThemedText style={styles.label}>Exercise (Optional)</ThemedText>
-              <TextInput
-                style={[
-                  styles.input,
-                  styles.textArea,
-                  { color: textColor, backgroundColor, borderColor },
-                ]}
-                value={lessonExercise}
-                onChangeText={setLessonExercise}
-                placeholder="Enter exercise prompt"
-                placeholderTextColor={textColor + '80'}
-                multiline
-                numberOfLines={4}
-                textAlignVertical="top"
-              />
-
-              <Pressable
-                style={({ pressed }) => [
-                  styles.createButton,
-                  { backgroundColor: tint, opacity: pressed ? 0.8 : 1 }
-                ]}
-                onPress={handleCreateLesson}
-              >
-                <ThemedText style={styles.createButtonText}>Create Lesson</ThemedText>
-              </Pressable>
-            </>
-          )}
+          <Pressable
+            style={({ pressed }) => [
+              styles.createButton,
+              {
+                backgroundColor: tint,
+                opacity: isUploading || !selectedFile ? 0.5 : pressed ? 0.8 : 1,
+              },
+            ]}
+            onPress={handleCreateBook}
+            disabled={isUploading || !selectedFile}
+          >
+            {isUploading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <ThemedText style={styles.createButtonText}>Upload & Generate Lessons</ThemedText>
+            )}
+          </Pressable>
         </ScrollView>
       </ThemedView>
     </SafeAreaView>
@@ -360,14 +344,17 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginTop: 12,
   },
+  helperText: {
+    fontSize: 14,
+    opacity: 0.7,
+    marginBottom: 16,
+    lineHeight: 20,
+  },
   input: {
     borderWidth: 1,
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
-  },
-  textArea: {
-    minHeight: 100,
   },
   uploadButton: {
     flexDirection: 'row',
@@ -395,11 +382,50 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
   },
-  row: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  halfWidth: {
+  statusContainer: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  spinner: {
+    marginBottom: 24,
+  },
+  statusTitle: {
+    marginTop: 20,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  statusDetail: {
+    textAlign: 'center',
+    opacity: 0.7,
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  errorText: {
+    color: '#ff3b30',
+    opacity: 1,
+  },
+  actionButton: {
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderRadius: 12,
+    marginTop: 32,
+  },
+  actionButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  secondaryButton: {
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    marginTop: 16,
+  },
+  secondaryButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

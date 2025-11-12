@@ -6,11 +6,17 @@ export default defineSchema({
   books: defineTable({
     title: v.string(),
     author: v.string(),
-    // Reference to uploaded PDF file in Convex storage (optional for now)
+    // Reference to uploaded PDF file in Convex storage
     uploadedFileId: v.optional(v.id("_storage")),
-    // Status: "pending", "processing", "ready", "error"
+    // Google File Search store name (for AI querying)
+    fileSearchStoreName: v.optional(v.string()),
+    // Status: "pending" → "uploading" → "processing" → "ready" or "error"
     status: v.string(),
-  }),
+    // Error message if processing failed
+    processingError: v.optional(v.string()),
+    // When processing completed
+    processedAt: v.optional(v.number()),
+  }).index("by_status", ["status"]),
 
   // Individual lessons extracted from books
   lessons: defineTable({
